@@ -190,7 +190,10 @@ const stringsTable_t catalanLanguage=
 .please_confirm				= "Please confirm", // MaxLen: 15
 .vfo_freq_bind_mode			= "Freq. Bind",
 .overwrite_qm				= "Overwrite ?", //Maxlen: 14 chars
-.eco_level					= "Eco Level"
+.eco_level				= "Eco Level",
+.buttons				= "Buttons",
+.leds					= "LEDs",
+.scan_dwell_time		= "Scan dwell"
 };
 /********************************************************************
  *

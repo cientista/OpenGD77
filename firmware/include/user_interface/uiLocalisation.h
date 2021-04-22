@@ -200,6 +200,9 @@ typedef struct
    const char *vfo_freq_bind_mode;
    const char *overwrite_qm;
    const char *eco_level;// Economy / Power saving level
+   const char *buttons;
+   const char *leds;
+   const char *scan_dwell_time;
 } stringsTable_t;
 
 extern const stringsTable_t languages[];

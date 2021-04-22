@@ -15,8 +15,8 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
-#include <user_interface/menuSystem.h>
-#include <user_interface/uiLocalisation.h>
+#include "user_interface/menuSystem.h"
+#include "user_interface/uiLocalisation.h"
 
 static void updateScreen(void);
 static void handleEvent(uiEvent_t *ev);
@@ -43,15 +43,14 @@ static void updateScreen(void)
 	ucPrintCentered(12, currentLanguage->power_off, FONT_SIZE_3);
 	ucPrintCentered(32, "73", FONT_SIZE_3);
 	ucRender();
-	displayLightTrigger();
 }
 
 static void handleEvent(uiEvent_t *ev)
 {
 #if defined(PLATFORM_RD5R)
-	if (battery_voltage > CUTOFF_VOLTAGE_LOWER_HYST)
+	if (batteryVoltage > CUTOFF_VOLTAGE_LOWER_HYST)
 #else
-	if ((GPIO_PinRead(GPIO_Power_Switch, Pin_Power_Switch) == 0) && (battery_voltage > CUTOFF_VOLTAGE_LOWER_HYST))
+	if ((GPIO_PinRead(GPIO_Power_Switch, Pin_Power_Switch) == 0) && (batteryVoltage > CUTOFF_VOLTAGE_LOWER_HYST))
 #endif
 	{
 		// I think this is to handle if the power button is turned back on during shutdown

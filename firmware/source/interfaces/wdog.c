@@ -16,126 +16,136 @@
  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
-#include <pit.h>
-#include <wdog.h>
+#include "interfaces/wdog.h"
+#include "interfaces/pit.h"
 
+static void watchdogTick(void);
+static void fw_watchdog_task(void *data);
 TaskHandle_t fwwatchdogTaskHandle;
-
-static WDOG_Type *wdog_base = WDOG;
-int watchdog_refresh_tick = 0;
-
 volatile bool alive_maintask;
 volatile bool alive_beeptask;
 volatile bool alive_hrc6000task;
-
 float averageBatteryVoltage;
-int battery_voltage = 0;
-int battery_voltage_tick = 0;
-bool batteryVoltageHasChanged = false;
-static bool reboot = false;
-static const int BATTERY_VOLTAGE_TICK_RELOAD = 2000;
-static const int AVERAGE_BATTERY_VOLTAGE_SAMPLE_WINDOW = 60.0f;// 120 secs = Sample window * BATTERY_VOLTAGE_TICK_RELOAD in milliseconds
+float previousAverageBatteryVoltage;
+int batteryVoltage = 0;
+bool headerRowIsDirty = false;
 
+static WDOG_Type *wdog_base = WDOG;
+static int watchdog_refresh_tick = 0;
+static bool reboot = false;
+static int batteryVoltageTick = 0;
+static int batteryVoltageCallbackTick = 0;
+static const int BATTERY_VOLTAGE_TICK_RELOAD = 100;
+static const int BATTERY_VOLTAGE_CALLBACK_TICK_RELOAD = 20;
+static const int AVERAGE_BATTERY_VOLTAGE_SAMPLE_WINDOW = 60.0f;// 120 secs = Sample window * BATTERY_VOLTAGE_TICK_RELOAD in milliseconds
+static const int BATTERY_VOLTAGE_STABILISATION_TIME = 2000;// time in PIT ticks for the battery voltage from the ADC to stabilise
 batteryHistoryCallback_t batteryCallbackFunction = NULL;
 
-
-void init_watchdog(batteryHistoryCallback_t cb)
+static void fw_watchdog_task(void *data)
 {
-    wdog_config_t config;
-
-    WDOG_GetDefaultConfig(&config);
-    config.timeoutValue = 0x3ffU;
-    WDOG_Init(wdog_base, &config);
-    for (uint32_t i = 0; i < 256; i++)
-    {
-    	wdog_base->RSTCNT;
-    }
-
-    batteryCallbackFunction = cb;
-
-    watchdog_refresh_tick = 0;
-
-    alive_maintask = false;
-    alive_beeptask = false;
-    alive_hrc6000task = false;
-
-    battery_voltage=adcGetBatteryVoltage();
-	averageBatteryVoltage = battery_voltage;
-	battery_voltage_tick = 0;
-
-	if (batteryCallbackFunction)
+	while (1U)
 	{
-		batteryCallbackFunction(battery_voltage);
-	}
-
-	xTaskCreate(fw_watchdog_task,                        /* pointer to the task */
-				"fw watchdog task",                      /* task name for kernel awareness debugging */
-				1000L / sizeof(portSTACK_TYPE),      /* task stack size */
-				NULL,                      			 /* optional task startup argument */
-				5U,                                  /* initial priority */
-				fwwatchdogTaskHandle					 /* optional task handle to create */
-				);
-}
-
-void fw_watchdog_task(void *data)
-{
-    while (1U)
-    {
-    	taskENTER_CRITICAL();
-    	uint32_t tmp_timer_watchdogtask = timer_watchdogtask;
-    	taskEXIT_CRITICAL();
-    	if (tmp_timer_watchdogtask == 0)
-    	{
-        	taskENTER_CRITICAL();
-        	timer_watchdogtask = 10;
-        	taskEXIT_CRITICAL();
-
-        	tick_watchdog();
-    	}
-
+		if (timer_watchdogtask == 0)
+		{
+			timer_watchdogtask = 10;
+			watchdogTick();
+		}
 		vTaskDelay(0);
-    }
+	}
 }
 
-
-void tick_watchdog(void)
+static void watchdogTick(void)
 {
-
 	watchdog_refresh_tick++;
 	if (watchdog_refresh_tick == 200)
 	{
 		if (alive_maintask && alive_beeptask && alive_hrc6000task && !reboot)
 		{
-	    	WDOG_Refresh(wdog_base);
+			WDOG_Refresh(wdog_base);
 		}
-	    alive_maintask = false;
-	    alive_beeptask = false;
-	    alive_hrc6000task = false;
-    	watchdog_refresh_tick = 0;
+		alive_maintask = false;
+		alive_beeptask = false;
+		alive_hrc6000task = false;
+		watchdog_refresh_tick = 0;
 	}
 
-	battery_voltage_tick++;
-	if (battery_voltage_tick == BATTERY_VOLTAGE_TICK_RELOAD)
+	batteryVoltageTick++;
+	if (batteryVoltageTick >= BATTERY_VOLTAGE_TICK_RELOAD)
 	{
-		int tmp_battery_voltage = adcGetBatteryVoltage();
+		batteryVoltage = adcGetBatteryVoltage();
 
-		if (battery_voltage != tmp_battery_voltage)
+		if (PITCounter < BATTERY_VOLTAGE_STABILISATION_TIME)
 		{
-			battery_voltage = tmp_battery_voltage;
-			averageBatteryVoltage = (averageBatteryVoltage * (AVERAGE_BATTERY_VOLTAGE_SAMPLE_WINDOW - 1) + battery_voltage) / AVERAGE_BATTERY_VOLTAGE_SAMPLE_WINDOW;
-			batteryVoltageHasChanged = true;
+			averageBatteryVoltage = batteryVoltage;
 		}
-		battery_voltage_tick = 0;
+		else
+		{
+			averageBatteryVoltage = (averageBatteryVoltage * (AVERAGE_BATTERY_VOLTAGE_SAMPLE_WINDOW - 1) + batteryVoltage) / AVERAGE_BATTERY_VOLTAGE_SAMPLE_WINDOW;
+		}
 
-		if (batteryCallbackFunction)
+		if (previousAverageBatteryVoltage != averageBatteryVoltage)
+		{
+			previousAverageBatteryVoltage = averageBatteryVoltage;
+			headerRowIsDirty = true;
+		}
+
+		batteryVoltageTick = 0;
+		batteryVoltageCallbackTick++;
+		if (batteryCallbackFunction && (batteryVoltageCallbackTick >= BATTERY_VOLTAGE_CALLBACK_TICK_RELOAD))
 		{
 			batteryCallbackFunction(averageBatteryVoltage);
+			batteryVoltageCallbackTick = 0;
 		}
 	}
-	adcTriggerConversion();// need the ADC value next time though, so request conversion now, so that its ready by the time we need it
+	adcTriggerConversion(NO_ADC_CHANNEL_OVERRIDE);// need the ADC value next time though, so request conversion now, so that its ready by the time we need it
 }
 
 void watchdogReboot(void)
 {
 	reboot = true;
+}
+
+void watchdogInit(batteryHistoryCallback_t cb)
+{
+	wdog_config_t config;
+
+	WDOG_GetDefaultConfig(&config);
+	config.timeoutValue = 0x3ffU;
+	WDOG_Init(wdog_base, &config);
+	for (uint32_t i = 0; i < 256; i++)
+	{
+		wdog_base->RSTCNT;
+	}
+
+	batteryCallbackFunction = cb;
+
+	watchdog_refresh_tick = 0;
+
+	alive_maintask = false;
+	alive_beeptask = false;
+	alive_hrc6000task = false;
+
+	batteryVoltage = adcGetBatteryVoltage();
+	averageBatteryVoltage = batteryVoltage;
+	previousAverageBatteryVoltage = 0;// need to set this to zero to force an immediate display update.
+	batteryVoltageTick = 0;
+	batteryVoltageCallbackTick = 0;
+
+	if (batteryCallbackFunction)
+	{
+		batteryCallbackFunction(batteryVoltage);
+	}
+
+	xTaskCreate(fw_watchdog_task,                        /* pointer to the task */
+			"WDT",                      /* task name for kernel awareness debugging */
+			1000L / sizeof(portSTACK_TYPE),      /* task stack size */
+			NULL,                      			 /* optional task startup argument */
+			5U,                                  /* initial priority */
+			fwwatchdogTaskHandle					 /* optional task handle to create */
+	);
+}
+
+void watchdogDeinit(void)
+{
+	WDOG_Deinit(wdog_base);
 }

@@ -16,23 +16,12 @@
  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
-#ifndef _FW_SPI_H_
-#define _FW_SPI_H_
+#ifndef _OPENGD77_SPI_H_
+#define _OPENGD77_SPI_H_
 
-#include "FreeRTOS.h"
-#include "task.h"
-
+#include <FreeRTOS.h>
+#include <task.h>
 #include "fsl_dspi.h"
-
-
-#define SPI_0_BAUDRATE (3000000U) /*! Transfer baudrate - 3MHz */
-#define SPI_1_BAUDRATE (3000000U) /*! Transfer baudrate - 3MHz */
-
-#define SPI_DATA_LENGTH (256)         /*! Transfer size */
-extern uint8_t spi_masterReceiveBuffer_SPI0[SPI_DATA_LENGTH];
-extern uint8_t SPI_masterSendBuffer_SPI0[SPI_DATA_LENGTH];
-extern uint8_t spi_masterReceiveBuffer_SPI1[SPI_DATA_LENGTH];
-extern uint8_t SPI_masterSendBuffer_SPI1[SPI_DATA_LENGTH];
 
 #if defined(PLATFORM_GD77) || defined(PLATFORM_GD77S)
 
@@ -161,4 +150,7 @@ int SPI0ReadPageRegBytAarray(uint8_t page, uint8_t reg, volatile uint8_t *values
 int SPI1WritePageRegByteArray(uint8_t page, uint8_t reg, const uint8_t *values, uint8_t length);
 int SPI1ReadPageRegByteArray(uint8_t page, uint8_t reg, volatile uint8_t *values, uint8_t length);
 
-#endif /* _FW_SPI_H_ */
+void SPI0Setup(void);
+void SPI1Setup(void);
+
+#endif /* _OPENGD77_SPI_H_ */
